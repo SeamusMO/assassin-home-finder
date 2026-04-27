@@ -8,41 +8,42 @@ st.title("🎯 Mass Assassin Tracker")
 # Verified URL for 2026 MassGIS Parcels
 API_URL = "https://services1.arcgis.com/hGd9HplS6ayRM9S_/arcgis/rest/services/L3_Parcels_Statewide/FeatureServer/0/query"
 
+# 1. Create a persistent session
+session = requests.Session()
+
 def search_mass_gis(query_text):
     query_text = query_text.strip().upper()
     
-    # curl_cffi allows us to "impersonate" a specific browser version
-    # This bypasses advanced 403 blocks that standard 'requests' hits
+    # Advanced headers to mimic a real browser
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://massgis.maps.arcgis.com",
+        "Referer": "https://massgis.maps.arcgis.com/apps/instant/sidebar/index.html"
+    }
+    
     params = {
         'where': f"OWNER1 LIKE '%{query_text}%'",
         'outFields': 'OWNER1,SITE_ADDR,CITY,TOTAL_VAL',
         'f': 'json',
-        'resultRecordCount': 20,
-        'returnGeometry': 'false'
+        'resultRecordCount': 20
     }
-
+    
     try:
-        # 'impersonate="chrome120"' is the magic line that fixes the 403
-        response = requests.get(
-            API_URL, 
-            params=params, 
-            impersonate="chrome120"
-        )
+        # Use session.get instead of requests.get
+        response = session.get(API_URL, params=params, headers=headers, timeout=10)
         
+        # If still 403, try a different approach: forcing a JSON content type
+        if response.status_code == 403:
+            st.error("MassGIS blocked the request. Try searching by Last Name only.")
+            return []
+            
         response.raise_for_status()
         data = response.json()
-        features = data.get('features', [])
-        
-        # Fallback to Last Name if no exact match
-        if not features and " " in query_text:
-            last_name = query_text.split()[-1]
-            params['where'] = f"OWNER1 LIKE '%{last_name}%'"
-            response = requests.get(API_URL, params=params, impersonate="chrome120")
-            features = response.json().get('features', [])
-            
-        return features
+        return data.get('features', [])
     except Exception as e:
-        st.error(f"Access Denied or Server Error: {e}")
+        st.error(f"Connection Error: {e}")
         return []
 
 name_input = st.text_input("Enter Target or Parent Name:", placeholder="e.g. MARTINO")
